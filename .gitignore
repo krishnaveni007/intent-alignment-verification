@@ -1,0 +1,17 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Data files (kept out of version control; use DVC or similar for large datasets)
+data/raw/*.json
+data/processed/*.json
+data/results/*.csv
+
+# Columnar data
+*.parquet
