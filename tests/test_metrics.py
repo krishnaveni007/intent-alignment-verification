@@ -1,3 +1,4 @@
+# test_metrics.py
 """
 Tests for src/evaluation/metrics.py
 """
@@ -51,25 +52,32 @@ class TestTaskSuccessRate:
 class TestIntentError:
     def test_perfect_alignment(self):
         u = {"a": ["x", "y"]}
-        assert intent_error(u, u) == 0.0
+        assert intent_error(u, u) == pytest.approx(0.0)
 
     def test_no_overlap(self):
         u_hat = {"a": ["x"]}
         u_star = {"a": ["y"]}
-        assert intent_error(u_hat, u_star) == 1.0
+        assert intent_error(u_hat, u_star, method="jaccard") == 1.0
 
     def test_partial_overlap(self):
         u_hat = {"a": ["x", "y"]}
         u_star = {"a": ["y", "z"]}
         # intersection={y}, union={x,y,z} -> jaccard dist = 1 - 1/3
-        assert abs(intent_error(u_hat, u_star) - (1 - 1 / 3)) < 1e-9
+        assert abs(intent_error(u_hat, u_star, method="jaccard") - (1 - 1 / 3)) < 1e-9
 
     def test_both_empty(self):
         assert intent_error({}, {}) == 0.0
 
-    def test_cosine_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            intent_error({"a": ["x"]}, {"a": ["x"]}, method="cosine")
+    def test_cosine_exact_match(self):
+        assert intent_error({"a": ["x"]}, {"a": ["x"]}, method="cosine") == 0.0
+
+    def test_cosine_partial_overlap(self):
+        result = intent_error(
+            {"a": ["cheap hotel"]},
+            {"a": ["cheap downtown hotel"]},
+            method="cosine",
+        )
+        assert 0.0 < result < 1.0
 
     def test_unknown_method_raises(self):
         with pytest.raises(ValueError):
@@ -81,7 +89,7 @@ class TestIntentError:
         # dim a: perfect -> 0.0
         # dim b: intersection={q}, union={p,q,r} -> 1 - 1/3
         expected = (0.0 + (1 - 1 / 3)) / 2
-        assert abs(intent_error(u_hat, u_star) - expected) < 1e-9
+        assert abs(intent_error(u_hat, u_star, method="jaccard") - expected) < 1e-9
 
 
 # ---------------------------------------------------------------------------

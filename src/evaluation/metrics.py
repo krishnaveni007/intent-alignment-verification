@@ -1,3 +1,4 @@
+# metrics.py
 """
 Evaluation metrics for the intent alignment verification framework.
 
@@ -14,6 +15,50 @@ Each function maps directly to one or more of the four research hypotheses:
 """
 
 from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _normalize_pref_values(values) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        return [values]
+    return [str(v) for v in values]
+
+
+def _token_counts(values) -> Counter:
+    text = " ".join(_normalize_pref_values(values)).lower()
+    tokens = re.findall(r"\b\w+\b", text)
+    return Counter(tokens)
+
+
+def _cosine_distance(values_a, values_b) -> float:
+    counts_a = _token_counts(values_a)
+    counts_b = _token_counts(values_b)
+
+    if not counts_a and not counts_b:
+        return 0.0
+    if not counts_a or not counts_b:
+        return 1.0
+
+    dot = sum(counts_a[token] * counts_b[token] for token in set(counts_a) | set(counts_b))
+    norm_a = math.sqrt(sum(value * value for value in counts_a.values()))
+    norm_b = math.sqrt(sum(value * value for value in counts_b.values()))
+
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 1.0
+
+    similarity = dot / (norm_a * norm_b)
+    similarity = max(0.0, min(1.0, similarity))
+    return 1.0 - similarity
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +117,7 @@ def task_success_rate(answers: dict, correct_ids: dict) -> float:
 # ---------------------------------------------------------------------------
 
 
-def intent_error(u_hat: dict, u_star: dict, method: str = "jaccard") -> float:
+def intent_error(u_hat: dict, u_star: dict, method: str = "cosine") -> float:
     """Measure the distance between inferred preferences û_t and ground-truth u*.
 
     Lower values indicate better alignment.  When plotted across conversation
@@ -86,7 +131,8 @@ def intent_error(u_hat: dict, u_star: dict, method: str = "jaccard") -> float:
     u_star : dict
         Ground-truth preference vector — same format as ``u_hat``.
     method : str
-        Distance method to use.  Currently supported: ``'jaccard'``.
+        Distance method to use.  Currently supported: ``'jaccard'`` and
+        ``'cosine'``.
 
     Returns
     -------
@@ -95,9 +141,6 @@ def intent_error(u_hat: dict, u_star: dict, method: str = "jaccard") -> float:
 
     Raises
     ------
-    NotImplementedError
-        If ``method='cosine'`` is requested (embedding-based distance is not
-        yet implemented).
     ValueError
         If an unsupported method string is provided.
 
@@ -109,16 +152,14 @@ def intent_error(u_hat: dict, u_star: dict, method: str = "jaccard") -> float:
 
         1 - \\frac{|\\hat{u}_d \\cap u^*_d|}{|\\hat{u}_d \\cup u^*_d|}
 
+    For cosine distance, each dimension is converted into a bag-of-words token
+    count vector and distance is computed as ``1 - cosine_similarity``.
+
     The per-dimension distances are then averaged across all dimensions that
     appear in either ``u_hat`` or ``u_star``.  If both dicts are completely
     empty, ``0.0`` is returned.
     """
-    if method == "cosine":
-        raise NotImplementedError(
-            "Embedding-based cosine distance not yet implemented. "
-            "Use method='jaccard' for now."
-        )
-    if method != "jaccard":
+    if method not in {"jaccard", "cosine"}:
         raise ValueError(f"Unsupported method '{method}'. Choose 'jaccard' or 'cosine'.")
 
     all_dims = set(u_hat) | set(u_star)
@@ -127,8 +168,15 @@ def intent_error(u_hat: dict, u_star: dict, method: str = "jaccard") -> float:
 
     total = 0.0
     for dim in all_dims:
-        hat_set = set(u_hat.get(dim, []))
-        star_set = set(u_star.get(dim, []))
+        hat_values = u_hat.get(dim, [])
+        star_values = u_star.get(dim, [])
+
+        if method == "cosine":
+            total += _cosine_distance(hat_values, star_values)
+            continue
+
+        hat_set = set(_normalize_pref_values(hat_values))
+        star_set = set(_normalize_pref_values(star_values))
         union = hat_set | star_set
         if not union:
             # Both empty for this dimension — perfect agreement, distance = 0
